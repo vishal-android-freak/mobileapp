@@ -270,10 +270,20 @@ val properties = Properties().apply {
     }
 }
 
+fun gradleStringPropOrNull(name: String): String? {
+    val local = properties.getProperty(name)?.takeIf { it.isNotEmpty() }
+    val gradle = providers.gradleProperty(name).orNull?.takeIf { it.isNotEmpty() }
+    return local ?: gradle
+}
+
 buildkonfig {
     packageName = "coredevices.ring"
     defaultConfigs {
-        buildConfigField(FieldSpec.Type.STRING, "NENYA_URL", "https://nenya.repebble.com")
+        buildConfigField(
+            FieldSpec.Type.STRING,
+            "NENYA_URL",
+            gradleStringPropOrNull("nenyaUrl") ?: "https://nenya.repebble.com"
+        )
         buildConfigField(FieldSpec.Type.STRING, "NOTION_OAUTH_BACKEND_URL", "https://index-oauth.repebble.com")
 
         buildConfigField(FieldSpec.Type.STRING, "TESTS_NOTION_TOKEN", System.getenv("TESTS_NOTION_TOKEN") ?: properties.getProperty("TESTS_NOTION_TOKEN") ?: "")
