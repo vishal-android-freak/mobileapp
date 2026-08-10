@@ -36,6 +36,14 @@ import kotlin.time.Clock
 
 class IndexAgentCactus(
     private val modelProvider: CactusModelProvider,
+    /**
+     * System prompt, mirroring [AgentNenya]'s `context`. It matters which one is
+     * passed: the Index prompt tells the model to lean towards creating a note when
+     * a request is ambiguous, which works against an imperative tool call like
+     * "lock my screen". [AgentFactory] passes the generic tool-using prompt when
+     * this agent is serving an MCP sandbox group.
+     */
+    private val context: String,
     conversation: List<ConversationMessageDocument>,
     private val inferenceBoost: InferenceBoostProvider = NoOpInferenceBoostProvider()
 ) : KoinComponent, ToolCallingAgent(conversation) {
@@ -126,12 +134,26 @@ class IndexAgentCactus(
         val handle = modelHandle
         if (handle == 0L) throw IllegalStateException("CactusAgent model not initialized")
 
+        // Each MCP server's own `instructions` describe what its tools are for, which
+        // is what lets the model choose between tools it was not fine-tuned on.
+        val systemPrompt = listOfNotNull(
+            context.trim().takeIf { it.isNotEmpty() },
+            mcpSession.getExtraContext(sessionContext, includePromptsFromMcps)?.trim()?.takeIf { it.isNotEmpty() },
+        ).joinToString("\n\n")
+
         val messagesJson = buildJsonArray {
+            if (systemPrompt.isNotEmpty()) {
+                add(buildJsonObject {
+                    put("role", "system")
+                    put("content", systemPrompt)
+                })
+            }
             add(buildJsonObject {
                 put("role", "user")
                 put("content", input)
             })
         }.toString()
+        logger.i { "CactusAgent system prompt: ${systemPrompt.length} chars, ${tools.size} tools" }
 
         val optionsJson = buildJsonObject {
             put("max_tokens", 256)
