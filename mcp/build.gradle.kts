@@ -64,6 +64,7 @@ kotlin {
         }
         jvmTest.dependencies {
             implementation(libs.kotlin.test.junit)
+            implementation(libs.coroutines.test)
             implementation(libs.modelcontextprotocol.server)
             implementation(libs.ktor.server.core)
             implementation(libs.ktor.server.netty)

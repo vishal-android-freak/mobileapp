@@ -7,6 +7,7 @@ import coredevices.mcp.data.McpPrompt
 import coredevices.mcp.data.SemanticResult
 import coredevices.mcp.data.ToolCallResult
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.sse.SSE
@@ -40,6 +41,27 @@ enum class HttpMcpProtocol {
     Sse
 }
 
+private val CONNECT_TIMEOUT = 10.seconds
+
+/**
+ * Only the connect timeout is bounded: request and socket timeouts would kill the
+ * long-lived SSE stream, which is idle between server events by design.
+ */
+private fun mcpHttpClient(authHeader: String?) = HttpClient {
+    install(SSE)
+    install(ContentNegotiation) {
+        json()
+    }
+    install(HttpTimeout) {
+        connectTimeoutMillis = CONNECT_TIMEOUT.inWholeMilliseconds
+    }
+    if (authHeader != null) {
+        defaultRequest {
+            header("Authorization", authHeader)
+        }
+    }
+}
+
 class HttpMcpIntegration(
     override val name: String,
     implementation: Implementation,
@@ -52,34 +74,8 @@ class HttpMcpIntegration(
     }
     private val client = Client(implementation)
     private val transport = when (protocol) {
-        HttpMcpProtocol.Streaming -> StreamableHttpClientTransport(
-            HttpClient {
-                install(SSE)
-                install(ContentNegotiation) {
-                    json()
-                }
-                if (authHeader != null) {
-                    defaultRequest {
-                        header("Authorization", authHeader)
-                    }
-                }
-            },
-            url
-        )
-        HttpMcpProtocol.Sse -> SseClientTransport(
-            HttpClient {
-                install(SSE)
-                install(ContentNegotiation) {
-                    json()
-                }
-                if (authHeader != null) {
-                    defaultRequest {
-                        header("Authorization", authHeader)
-                    }
-                }
-            },
-            url
-        )
+        HttpMcpProtocol.Streaming -> StreamableHttpClientTransport(mcpHttpClient(authHeader), url)
+        HttpMcpProtocol.Sse -> SseClientTransport(mcpHttpClient(authHeader), url)
     }
     private var toolCache: List<McpTool>? = null
     private var toolCacheTimestamp: Instant = Instant.DISTANT_PAST

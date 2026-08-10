@@ -8,7 +8,9 @@ import coredevices.mcp.data.ToolCallResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
+import kotlin.time.Duration.Companion.seconds
 
 class McpSession(
     private val integrations: List<McpIntegration>,
@@ -16,6 +18,9 @@ class McpSession(
 ) {
     companion object {
         private val logger = Logger.withTag("McpSession")
+
+        /** Bounds the MCP handshake, which the HTTP connect timeout does not cover. */
+        private val CONNECT_TIMEOUT = 15.seconds
     }
     private val integrationLookup: Map<String, McpIntegration> = integrations.associateBy { it.name }
 
@@ -23,7 +28,10 @@ class McpSession(
         for (integration in integrations) {
             try {
                 integration.resetCache()
-                integration.connect()
+                val connected = withTimeoutOrNull(CONNECT_TIMEOUT) { integration.connect() } != null
+                if (!connected) {
+                    logger.e { "Timed out connecting to integration ${integration.name}" }
+                }
             } catch (e: Exception) {
                 // Log and continue with other integrations
                 logger.e(e) { "Failed to connect to integration ${integration.name}: ${e.message}" }
