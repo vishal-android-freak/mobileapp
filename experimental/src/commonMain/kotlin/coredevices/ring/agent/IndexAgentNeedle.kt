@@ -1,9 +1,6 @@
 package coredevices.ring.agent
 
 import co.touchlab.kermit.Logger
-import com.needle.needleComplete
-import com.needle.needleInit
-import com.needle.needleReset
 import coredevices.indexai.agent.AgentToolCall
 import coredevices.indexai.agent.ToolCallingAgent
 import coredevices.indexai.data.entity.ConversationMessageDocument
@@ -13,8 +10,6 @@ import coredevices.indexai.data.entity.ToolCall
 import coredevices.mcp.SessionContext
 import coredevices.mcp.client.McpSession
 import coredevices.mcp.client.McpSessionTool
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.Json
@@ -39,6 +34,7 @@ import kotlin.time.Clock
  * answer has to be composed from a tool's output.
  */
 class IndexAgentNeedle(
+    private val runtime: NeedleRuntime,
     conversation: List<ConversationMessageDocument>,
 ) : ToolCallingAgent(conversation) {
     override val label = "Needle"
@@ -53,14 +49,6 @@ class IndexAgentNeedle(
 
         private val json = Json { ignoreUnknownKeys = true }
     }
-
-    /** The native API is a singleton: no handle, and `needle_reset` is global. */
-    private val nativeLock = Mutex()
-
-    /** Re-init is only needed when the catalogue changes, and it re-embeds every
-     *  tool schema, so avoid doing it on every turn. */
-    private var loadedToolsJson: String? = null
-    private var parentMap: Map<String, String> = emptyMap()
 
     /** Set from the last response so a caller can decide whether to escalate. */
     var lastConfidence: Float? = null
@@ -131,20 +119,7 @@ class IndexAgentNeedle(
     ): ConversationMessageDocument {
         val (toolsJson, parents) = prepareTools(tools)
 
-        val raw = nativeLock.withLock {
-            if (toolsJson != loadedToolsJson) {
-                val rc = needleInit(systemFacts(), toolsJson, null)
-                if (rc < 0) throw IllegalStateException("needle_init failed with $rc")
-                loadedToolsJson = toolsJson
-                parentMap = parents
-                logger.i { "Needle initialised with ${tools.size} tools" }
-            } else {
-                // Same catalogue, new turn: drop the previous conversation but keep the
-                // tool embeddings loaded.
-                needleReset()
-            }
-            needleComplete(input)
-        } ?: throw IllegalStateException("needle_complete failed")
+        val raw = runtime.complete(systemFacts(), toolsJson, input)
 
         val response = try {
             json.parseToJsonElement(raw).jsonObject
@@ -159,7 +134,7 @@ class IndexAgentNeedle(
 
         logger.i {
             "Needle -> type=${response["type"]?.jsonPrimitive?.content} " +
-                "calls=${calls.size} confidence=$lastConfidence"
+                "tools=${tools.size} calls=${calls.size} confidence=$lastConfidence"
         }
 
         return ConversationMessageDocument(
@@ -168,7 +143,7 @@ class IndexAgentNeedle(
             tool_calls = calls.mapNotNull { element ->
                 val call = element.jsonObject
                 val shortName = call["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                val parent = parentMap[shortName]
+                val parent = parents[shortName]
                 if (parent == null) {
                     logger.w { "Unknown tool name from model: $shortName" }
                     return@mapNotNull null

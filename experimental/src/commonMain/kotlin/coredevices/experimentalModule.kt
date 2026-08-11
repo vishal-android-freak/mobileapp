@@ -11,6 +11,7 @@ import coredevices.libindex.di.libIndexModule
 import coredevices.ring.BuildKonfig
 import coredevices.ring.agent.IndexAgentCactus
 import coredevices.ring.agent.IndexAgentNeedle
+import coredevices.ring.agent.NeedleRuntime
 import coredevices.ring.model.CactusModelProvider
 import coredevices.ring.transcription.InferenceBoostProvider
 import coredevices.ring.transcription.NoOpInferenceBoostProvider
@@ -231,7 +232,8 @@ val experimentalModule = module {
     factory { p -> SearchAgentNenya(get(), get(), get(), p.getOrNull() ?: emptyList()) }
     single { CactusModelProvider() }
     single<CactusModelPathProvider> { get<CactusModelProvider>() }
-    factory { p -> IndexAgentNeedle(p.getOrNull() ?: emptyList()) }
+    singleOf(::NeedleRuntime)
+    factory { p -> IndexAgentNeedle(get(), p.getOrNull() ?: emptyList()) }
     factory { p -> IndexAgentCactus(get<CactusModelProvider>(), p.get<String>(), p.getOrNull() ?: emptyList(), getOrNull<InferenceBoostProvider>() ?: NoOpInferenceBoostProvider()) }
     singleOf(::AgentFactory)
     singleOf(::RecordingProcessor)

@@ -3,6 +3,10 @@ package coredevices.coreapp.ring.agent
 import com.needle.needleComplete
 import com.needle.needleInit
 import com.needle.needleReset
+import coredevices.ring.agent.NeedleRuntime
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -116,5 +120,33 @@ class NeedleOnDeviceTest {
         for (key in listOf("\"type\"", "\"function_calls\"", "\"confidence\"")) {
             assertTrue(raw.contains(key), "missing $key in: $raw")
         }
+    }
+
+    /**
+     * Two conversations hitting the model at once must not interleave. The native API is
+     * process-global, so without a shared lock one caller's `needle_init` lands between
+     * the other's init and complete, and the second answer is drawn from the first's
+     * catalogue — or the library aborts.
+     */
+    @Test
+    fun concurrentCallersAreSerialised() = runBlocking {
+        val runtime = NeedleRuntime()
+        val facts = "date: 2026-08-11 Tue 17:30; device: phone"
+
+        val results = listOf("lock my screen", "turn the volume down to 15")
+            .map { prompt -> async { prompt to runtime.complete(facts, toolsJson, prompt) } }
+            .awaitAll()
+
+        for ((prompt, raw) in results) {
+            assertTrue(raw.isNotBlank(), "empty response for '$prompt'")
+            assertEquals(
+                raw.count { it == '{' },
+                raw.count { it == '}' },
+                "unbalanced braces for '$prompt', likely a clobbered buffer: $raw",
+            )
+        }
+        // Each answer has to match its own prompt, not the other coroutine's.
+        assertTrue(results[0].second.contains("\"lock_screen\""), "got: ${results[0].second}")
+        assertTrue(results[1].second.contains("\"set_volume\""), "got: ${results[1].second}")
     }
 }
