@@ -28,7 +28,10 @@ kotlin {
         }
     }
 
-    val iosLibDir = project.file("src/commonMain/resources/ios/lib")
+    // Not under commonMain/resources: cinterop only needs these at link time, but an
+    // Android target packages its resources into the APK, so putting them there ships
+    // 23.2MB of iOS archives to every phone.
+    val iosLibDir = project.file("libs")
 
     listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
         val libSubdir = when (target.name) {
