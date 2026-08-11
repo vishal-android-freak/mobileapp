@@ -1,0 +1,5 @@
+package = needle
+headers = needle.h
+headerFilter = needle.h
+staticLibraries = libneedle.a
+linkerOpts = -framework Foundation -framework Accelerate

@@ -19,8 +19,18 @@ class AgentFactory: KoinComponent {
 
     private val signedIn get() = Firebase.auth.currentUser?.emailOrNull != null
 
+    /**
+     * On-device agent. Needle 2 rather than Cactus/needle-pebble-ft: measured on a
+     * Pixel 10 against the live 11-tool catalogue it selected correctly 11/11 in
+     * 0.6-2.1s at ~25MB RAM, including MCP tools it was never fine-tuned on, where the
+     * Cactus path could not reach them at all.
+     *
+     * `context` is unused here: Needle's system turn carries environment facts, and its
+     * documentation states instructions placed there do not steer the model, so the
+     * agent supplies its own facts instead of a prompt.
+     */
     private fun local(conversation: List<ConversationMessageDocument>, context: String): Agent =
-        get<IndexAgentCactus> { parametersOf(context, conversation) }
+        get<IndexAgentNeedle> { parametersOf(conversation) }
 
     private fun remote(conversation: List<ConversationMessageDocument>): Agent =
         get<IndexAgentNenya> { parametersOf(conversation) }

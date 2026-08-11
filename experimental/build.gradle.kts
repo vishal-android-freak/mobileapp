@@ -211,6 +211,7 @@ kotlin {
                 implementation(project(":resampler"))
                 implementation(libs.coredevices.haversine)
                 implementation(project(":cactus"))
+                implementation(project(":needle"))
                 implementation(project(":libindex"))
                 implementation(project(":libpebble3"))
                 implementation(libs.settings)
