@@ -4,6 +4,17 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 import java.util.Properties
 
+val properties = Properties().apply {
+    try {
+        load(rootDir.resolve("local.properties").reader())
+    } catch (e: Exception) {
+        println("local.properties file not found")
+    }
+}
+val googleHomeEnabled = properties.getProperty("GOOGLE_HOME_ENABLED")?.toBooleanStrictOrNull()
+    ?: providers.gradleProperty("GOOGLE_HOME_ENABLED").orNull?.toBooleanStrictOrNull()
+    ?: false
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
@@ -230,9 +241,17 @@ kotlin {
         }
 
         androidMain {
+            kotlin.srcDir(
+                if (googleHomeEnabled) "src/googleHomeAndroidMain/kotlin"
+                else "src/noGoogleHomeAndroidMain/kotlin"
+            )
             dependencies {
                 // gitlive's compile variant declares com.google.firebase:* without versions.
                 implementation(project.dependencies.platform(libs.firebase.bom))
+                if (googleHomeEnabled) {
+                    implementation(libs.play.services.home)
+                    implementation(libs.play.services.home.types)
+                }
                 implementation(libs.androidx.glance)
                 implementation(libs.androidx.glance.material3)
                 implementation(compose.uiTooling)
@@ -263,17 +282,10 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
-val properties = Properties().apply {
-    try {
-        load(rootDir.resolve("local.properties").reader())
-    } catch (e: Exception) {
-        println("local.properties file not found")
-    }
-}
-
 buildkonfig {
     packageName = "coredevices.ring"
     defaultConfigs {
+        buildConfigField(FieldSpec.Type.BOOLEAN, "GOOGLE_HOME_ENABLED", googleHomeEnabled.toString())
         buildConfigField(FieldSpec.Type.STRING, "NENYA_URL", "https://nenya.repebble.com")
         buildConfigField(FieldSpec.Type.STRING, "NOTION_OAUTH_BACKEND_URL", "https://index-oauth.repebble.com")
 

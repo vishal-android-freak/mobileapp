@@ -65,6 +65,7 @@ zxing = "3.5.4"
 compass = "3.2.0"
 health-kmp = "1.4.0"
 documentfile = "1.1.0"
+play-services-home = "17.1.0"
 
 [plugins]
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
@@ -177,3 +178,5 @@ compass-autocomplete = { module = "dev.jordond.compass:autocomplete", version.re
 compass-autocomplete-mobile = { module = "dev.jordond.compass:autocomplete-mobile", version.ref = "compass" }
 coredevices-krispPrivate = { group = "coredevices.krispkmp", name = "library", version.ref = "coredevices-krisp" }
 health-kmp = { module = "com.viktormykhailiv:health-kmp", version.ref = "health-kmp" }
+play-services-home = { module = "com.google.android.gms:play-services-home", version.ref = "play-services-home" }
+play-services-home-types = { module = "com.google.android.gms:play-services-home-types", version.ref = "play-services-home" }

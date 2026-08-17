@@ -24,6 +24,13 @@ import kotlin.test.assertTrue
  */
 class NeedleOnDeviceTest {
 
+    private val googleHomeToolsJson = """
+        [
+         {"name":"control_google_home_device","description":"Control a named device already connected to the user's Google Home. Supports turning lights, switches, plugs, fans, displays, and TVs on or off, toggling them, and setting light brightness.",
+          "parameters":{"type":"object","properties":{"device_name":{"type":"string","description":"Device name exactly as the user said it, for example 'desk lamp'."},"room_name":{"type":"string","description":"Room name when the user included one, used to disambiguate devices."},"action":{"type":"string","enum":["on","off","toggle","set_brightness"]},"brightness_percent":{"type":"integer","minimum":0,"maximum":100,"description":"Required only for set_brightness."}},"required":["device_name","action"]}}
+        ]
+    """.trimIndent()
+
     /** Short names, as [coredevices.ring.agent.IndexAgentNeedle] sends them. */
     private val toolsJson = """
         [
@@ -67,6 +74,41 @@ class NeedleOnDeviceTest {
         assertTrue(raw.contains("\"set_volume\""), "expected set_volume in: $raw")
         // The value has to come from the utterance, not be invented or omitted.
         assertTrue(raw.contains("15"), "expected percent 15 in: $raw")
+    }
+
+    @Test
+    fun googleHomeCommandProducesControlCall() {
+        val tool = googleHomeToolsJson.removePrefix("[").removeSuffix("]").trim()
+        val requests = listOf(
+            Triple("can you switch on the window lights?", "control_light", listOf("window lights", "\"on\"")),
+            Triple(
+                "set the desk lamp brightness to 40 percent",
+                "control_light",
+                listOf("desk lamp", "set_brightness", "40"),
+            ),
+        )
+        requests.forEach { (request, alias, expectedArguments) ->
+            val schema = "[${tool.replace("control_google_home_device", alias)}]"
+            assertTrue(
+                needleInit(
+                    "date: 2026-08-17 Mon 18:30; device: phone",
+                    schema,
+                    null,
+                ) >= 0,
+            )
+            needleReset()
+            val raw = needleComplete(request) ?: "null"
+            assertTrue(
+                raw.contains("\"$alias\""),
+                "Google Home alias '$alias' did not route '$request': $raw",
+            )
+            expectedArguments.forEach { expected ->
+                assertTrue(
+                    raw.contains(expected, ignoreCase = true),
+                    "Expected '$expected' for '$request': $raw",
+                )
+            }
+        }
     }
 
     @Test

@@ -51,6 +51,7 @@ import coredevices.ring.agent.integrations.NotionIntegration
 import coredevices.ring.agent.integrations.obsidian.ObsidianIntegration
 import coredevices.ring.agent.integrations.obsidian.ObsidianMode
 import coredevices.ring.agent.integrations.obsidian.ObsidianPreferences
+import coredevices.ring.BuildKonfig
 import coredevices.ring.data.IntegrationDefinition
 import coredevices.ring.database.Preferences
 import coredevices.ui.M3Dialog
@@ -143,6 +144,19 @@ fun AddIntegration(coreNav: CoreNav) {
                 )
             }
             if (platform.isAndroid) {
+                if (BuildKonfig.GOOGLE_HOME_ENABLED) {
+                    item {
+                        ListItem(
+                            headlineContent = { Text("Google Home") },
+                            supportingContent = { Text("Smart home devices") },
+                            modifier = Modifier.clickable {
+                                dialog = {
+                                    GoogleHomeDialog(onDismiss = { dialog = null })
+                                }
+                            }
+                        )
+                    }
+                }
                 item {
                     val def = remember { TASKER_DEFINITION }
                     Item(def) {

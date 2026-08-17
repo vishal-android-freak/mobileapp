@@ -16,6 +16,12 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        mavenLocal {
+            content {
+                includeModule("com.google.android.gms", "play-services-home")
+                includeModule("com.google.android.gms", "play-services-home-types")
+            }
+        }
         google()
         mavenCentral()
         maven(url = "https://jitpack.io")

@@ -9,6 +9,7 @@ import androidx.room.RoomDatabaseConstructor
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.migration.AutoMigrationSpec
+import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 import co.touchlab.kermit.Logger
@@ -84,7 +85,7 @@ import kotlin.uuid.Uuid
         RecordingFeedItem::class,
         RingTransferFeedItem::class
     ],
-    version = 33,
+    version = 34,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -167,6 +168,128 @@ class Migrate27To28 : AutoMigrationSpec {
     override fun onPostMigrate(connection: SQLiteConnection) {
         connection.execSQL(
             "UPDATE LocalRecording SET lastPushedUpdated = updated WHERE firestoreId IS NOT NULL"
+        )
+    }
+}
+
+/**
+ * Repairs databases created by the custom click-actions branch, which also used version 33
+ * but predated RecordingEntryEntity.errorType. The column check keeps this migration safe
+ * for databases created by the upstream version 33 schema as well.
+ */
+val MIGRATION_33_34 = object : Migration(33, 34) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL("DROP VIEW IF EXISTS `RecordingFeedItem`")
+        connection.execSQL("DROP VIEW IF EXISTS `RingTransferFeedItem`")
+
+        val hasErrorType = connection.prepare("PRAGMA table_info(`RecordingEntryEntity`)").use { statement ->
+            var found = false
+            while (statement.step()) {
+                if (statement.getText(1) == "errorType") {
+                    found = true
+                    break
+                }
+            }
+            found
+        }
+        if (!hasErrorType) {
+            connection.execSQL("ALTER TABLE `RecordingEntryEntity` ADD COLUMN `errorType` TEXT DEFAULT NULL")
+        }
+
+        connection.execSQL(
+            """
+            |CREATE VIEW `RecordingFeedItem` AS SELECT
+            |        lr.id AS rootRecordingId,
+            |        lr.localTimestamp,
+            |        re.*,
+            |        cm.semantic_result
+            |    FROM LocalRecording AS lr
+            |    LEFT JOIN RecordingEntryEntity AS re ON re.id = (
+            |        SELECT id
+            |        FROM RecordingEntryEntity
+            |        WHERE recordingId = lr.id
+            |        ORDER BY timestamp DESC
+            |        LIMIT 1
+            |    )
+            |    LEFT JOIN ConversationMessageEntity AS cm ON cm.id = (
+            |        SELECT id
+            |        FROM ConversationMessageEntity
+            |        WHERE recordingId = lr.id
+            |        AND role = 'tool'
+            |        ORDER BY timestamp DESC
+            |        LIMIT 1
+            |    )
+            """.trimMargin()
+        )
+        connection.execSQL(
+            """
+            |CREATE VIEW `RingTransferFeedItem` AS SELECT
+            |            RT.id AS transfer_id,
+            |            RT.recordingId AS transfer_recordingId,
+            |            RT.recordingEntryId AS transfer_recordingEntryId,
+            |            RT.isCurrentIndexIteration AS transfer_isCurrentIndexIteration,
+            |            RT.status AS transfer_status,
+            |            RT.fileId AS transfer_fileId,
+            |            RT.createdAt AS transfer_createdAt,
+            |            RT.transferInfo_collectionStartIndex AS transfer_transferInfo_collectionStartIndex,
+            |            RT.transferInfo_collectionEndIndex AS transfer_transferInfo_collectionEndIndex,
+            |            RT.transferInfo_buttonPressed AS transfer_transferInfo_buttonPressed,
+            |            RT.transferInfo_buttonReleased AS transfer_transferInfo_buttonReleased,
+            |            RT.transferInfo_advertisementReceived AS transfer_transferInfo_advertisementReceived,
+            |            RT.transferInfo_transferCompleted AS transfer_transferInfo_transferCompleted,
+            |            RT.transferInfo_buttonReleaseAdvertisementLatencyMs AS transfer_transferInfo_buttonReleaseAdvertisementLatencyMs,
+            |
+            |            RF.rootRecordingId AS feedItem_rootRecordingId,
+            |            RF.localTimestamp AS feedItem_localTimestamp,
+            |            RF.semantic_result AS feedItem_semantic_result,
+            |            RF.id AS feedItem_id,
+            |            RF.recordingId AS feedItem_recordingId,
+            |            RF.timestamp AS feedItem_timestamp,
+            |            RF.fileName AS feedItem_fileName,
+            |            RF.status AS feedItem_status,
+            |            RF.transcription AS feedItem_transcription,
+            |            RF.error AS feedItem_error,
+            |            RF.errorType AS feedItem_errorType,
+            |            RF.ringTransferInfo AS feedItem_ringTransferInfo,
+            |            RF.userMessageId AS feedItem_userMessageId
+            |
+            |        FROM RingTransfer AS RT
+            |        LEFT JOIN RecordingFeedItem AS RF ON RT.recordingId = RF.rootRecordingId
+            |        UNION ALL
+            |        SELECT
+            |            RT.id AS transfer_id,
+            |            RT.recordingId AS transfer_recordingId,
+            |            RT.recordingEntryId AS transfer_recordingEntryId,
+            |            RT.isCurrentIndexIteration AS transfer_isCurrentIndexIteration,
+            |            RT.status AS transfer_status,
+            |            RT.fileId AS transfer_fileId,
+            |            RT.createdAt AS transfer_createdAt,
+            |            RT.transferInfo_collectionStartIndex AS transfer_transferInfo_collectionStartIndex,
+            |            RT.transferInfo_collectionEndIndex AS transfer_transferInfo_collectionEndIndex,
+            |            RT.transferInfo_buttonPressed AS transfer_transferInfo_buttonPressed,
+            |            RT.transferInfo_buttonReleased AS transfer_transferInfo_buttonReleased,
+            |            RT.transferInfo_advertisementReceived AS transfer_transferInfo_advertisementReceived,
+            |            RT.transferInfo_transferCompleted AS transfer_transferInfo_transferCompleted,
+            |            RT.transferInfo_buttonReleaseAdvertisementLatencyMs AS transfer_transferInfo_buttonReleaseAdvertisementLatencyMs,
+            |
+            |            RF.rootRecordingId AS feedItem_rootRecordingId,
+            |            RF.localTimestamp AS feedItem_localTimestamp,
+            |            RF.semantic_result AS feedItem_semantic_result,
+            |            RF.id AS feedItem_id,
+            |            RF.recordingId AS feedItem_recordingId,
+            |            RF.timestamp AS feedItem_timestamp,
+            |            RF.fileName AS feedItem_fileName,
+            |            RF.status AS feedItem_status,
+            |            RF.transcription AS feedItem_transcription,
+            |            RF.error AS feedItem_error,
+            |            RF.errorType AS feedItem_errorType,
+            |            RF.ringTransferInfo AS feedItem_ringTransferInfo,
+            |            RF.userMessageId AS feedItem_userMessageId
+            |
+            |        FROM RecordingFeedItem AS RF
+            |        LEFT JOIN RingTransfer AS RT ON RF.rootRecordingId = RT.recordingId
+            |        WHERE RT.id IS NULL
+            """.trimMargin()
         )
     }
 }

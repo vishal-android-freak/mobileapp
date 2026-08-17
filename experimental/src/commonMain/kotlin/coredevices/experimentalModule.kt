@@ -39,6 +39,7 @@ import coredevices.ring.api.NenyaClientImpl
 import coredevices.ring.api.NotionApi
 import coredevices.ring.audio.M4aEncoder
 import coredevices.ring.database.Preferences
+import coredevices.ring.database.room.MIGRATION_33_34
 import coredevices.ring.database.PreferencesImpl
 import coredevices.ring.database.room.RingDatabase
 import coredevices.ring.database.room.repository.McpSandboxRepository
@@ -108,6 +109,7 @@ val experimentalModule = module {
     single {
         val builder: RoomDatabase.Builder<RingDatabase> = get()
         builder
+            .addMigrations(MIGRATION_33_34)
             .fallbackToDestructiveMigrationOnDowngrade(true)
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)

@@ -10,6 +10,7 @@ import coredevices.indexai.data.entity.ToolCall
 import coredevices.mcp.SessionContext
 import coredevices.mcp.client.McpSession
 import coredevices.mcp.client.McpSessionTool
+import coredevices.ring.agent.builtin_servlets.googlehome.ControlGoogleHomeDeviceToolConstants
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.Json
@@ -54,22 +55,50 @@ class IndexAgentNeedle(
     var lastConfidence: Float? = null
         private set
 
+    private data class ToolTarget(
+        val integrationName: String,
+        val toolName: String,
+    )
+
+    private fun selectTools(input: String, tools: List<McpSessionTool>): List<McpSessionTool> {
+        val words = input.lowercase()
+        val isLightControl = listOf("light", "lights", "lamp", "lamps", "bulb", "bulbs")
+            .any(words::contains) &&
+            listOf("turn on", "turn off", "switch on", "switch off", "toggle", "brightness", "dim", "brighten")
+                .any(words::contains)
+        if (!isLightControl) return tools
+
+        val googleHomeTools = tools.filter { (_, tool) ->
+            tool.definition.name.substringAfter("__") ==
+                ControlGoogleHomeDeviceToolConstants.TOOL_NAME
+        }
+        return googleHomeTools.ifEmpty { tools }
+    }
+
     /**
      * Needle takes short names; the composite `integration__tool` form is mapped back
      * afterwards, exactly as the Cactus path does.
      */
-    private fun prepareTools(tools: List<McpSessionTool>): Pair<String, Map<String, String>> {
-        val parents = mutableMapOf<String, String>()
+    private fun prepareTools(tools: List<McpSessionTool>): Pair<String, Map<String, ToolTarget>> {
+        val targets = mutableMapOf<String, ToolTarget>()
         val array = buildJsonArray {
             tools.forEach { (integrationName, tool) ->
                 val definition = tool.definition
                 val shortName = definition.name.substringAfter("__")
-                parents[shortName] = integrationName
-                add(
-                    buildJsonObject {
+                val modelNames = if (
+                    shortName == ControlGoogleHomeDeviceToolConstants.TOOL_NAME
+                ) {
+                    ControlGoogleHomeDeviceToolConstants.NEEDLE_TOOL_ALIASES
+                } else {
+                    listOf(shortName)
+                }
+                modelNames.forEach { modelName ->
+                    targets[modelName] = ToolTarget(integrationName, shortName)
+                    add(
+                        buildJsonObject {
                         // Flat shape: Needle wants {name, description, parameters}, not
                         // OpenAI's {type, function:{...}} wrapper.
-                        put("name", shortName)
+                        put("name", modelName)
                         put("description", definition.description ?: shortName)
                         put(
                             "parameters",
@@ -87,11 +116,12 @@ class IndexAgentNeedle(
                                 )
                             }
                         )
-                    }
-                )
+                        }
+                    )
+                }
             }
         }
-        return array.toString() to parents
+        return array.toString() to targets
     }
 
     /**
@@ -117,7 +147,8 @@ class IndexAgentNeedle(
         sessionContext: SessionContext,
         includePromptsFromMcps: Map<String, Set<String>>,
     ): ConversationMessageDocument {
-        val (toolsJson, parents) = prepareTools(tools)
+        val selectedTools = selectTools(input, tools)
+        val (toolsJson, targets) = prepareTools(selectedTools)
 
         val raw = runtime.complete(systemFacts(), toolsJson, input)
 
@@ -134,7 +165,7 @@ class IndexAgentNeedle(
 
         logger.i {
             "Needle -> type=${response["type"]?.jsonPrimitive?.content} " +
-                "tools=${tools.size} calls=${calls.size} confidence=$lastConfidence"
+                "tools=${selectedTools.size} calls=${calls.size} confidence=$lastConfidence"
         }
 
         return ConversationMessageDocument(
@@ -142,17 +173,17 @@ class IndexAgentNeedle(
             content = text?.takeIf { it.isNotBlank() },
             tool_calls = calls.mapNotNull { element ->
                 val call = element.jsonObject
-                val shortName = call["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                val parent = parents[shortName]
-                if (parent == null) {
-                    logger.w { "Unknown tool name from model: $shortName" }
+                val modelName = call["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                val target = targets[modelName]
+                if (target == null) {
+                    logger.w { "Unknown tool name from model: $modelName" }
                     return@mapNotNull null
                 }
                 ToolCall(
-                    id = "$parent.$shortName",
+                    id = "${target.integrationName}.${target.toolName}",
                     type = "function",
                     function = FunctionToolCall(
-                        name = "$parent.$shortName",
+                        name = "${target.integrationName}.${target.toolName}",
                         // Needle returns `arguments` as an object; the wire format the
                         // rest of the app stores is a JSON string.
                         arguments = (call["arguments"] ?: JsonObject(emptyMap())).toString(),

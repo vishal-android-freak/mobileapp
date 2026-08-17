@@ -9,6 +9,7 @@ import coredevices.haversine.KMPHaversineSatelliteManager
 import coredevices.ring.RingDelegate
 import coredevices.ring.agent.builtin_servlets.js.AndroidWebviewJsEngine
 import coredevices.ring.agent.builtin_servlets.js.JsEngine
+import coredevices.ring.agent.builtin_servlets.googlehome.GoogleHomeController
 import coredevices.util.integrations.IntegrationTokenStorage
 import coredevices.ring.database.IntegrationTokenStorageImpl
 import coredevices.ring.encryption.EncryptionKeyManager
@@ -35,6 +36,7 @@ import coredevices.util.transcription.InferenceBoost
 import org.koin.dsl.module
 
 actual val platformRingModule = module {
+    singleOf(::GoogleHomeController)
     single<InferenceBoostProvider> { AndroidInferenceBoostProvider(get()) } bind InferenceBoost::class
     single<CactusModelPathProvider> { CactusModelProvider() }
     singleOf(::RingDelegate)

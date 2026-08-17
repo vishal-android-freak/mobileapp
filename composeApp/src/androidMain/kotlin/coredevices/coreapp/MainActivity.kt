@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import co.touchlab.kermit.Logger
 import com.eygraber.uri.toKmpUriOrNull
 import coredevices.ExperimentalDevices
+import coredevices.ring.agent.builtin_servlets.googlehome.GoogleHomeController
 import coredevices.coreapp.ui.App
 import coredevices.coreapp.ui.navigation.CoreDeepLinkHandler
 import coredevices.pebble.PebbleAndroidDelegate
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
     private val oAuthRedirectHandler: OAuthRedirectHandler by inject()
     private val experimentalDevices: ExperimentalDevices by inject()
     private val pebbleBackgroundManager: PebbleBackgroundManager by inject()
+    private val googleHomeController: GoogleHomeController by inject()
 
     companion object {
         private val logger = Logger.withTag(MainActivity::class.simpleName!!)
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(themeProvider.theme.value)
         super.onCreate(savedInstanceState)
+        googleHomeController.registerPermissionCaller(this)
 
         lifecycleScope.launch(Dispatchers.Main) {
             pebbleDelegate.initPostPermissions()

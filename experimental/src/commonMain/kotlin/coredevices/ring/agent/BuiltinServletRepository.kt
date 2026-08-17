@@ -4,12 +4,14 @@ import coredevices.indexai.agent.ServletRepository
 import coredevices.mcp.client.McpIntegration
 import coredevices.ring.agent.builtin_servlets.calendar.CalendarServlet
 import coredevices.ring.agent.builtin_servlets.clock.ClockServlet
+import coredevices.ring.agent.builtin_servlets.googlehome.GoogleHomeServlet
 import coredevices.ring.agent.builtin_servlets.js.JsServlet
 import coredevices.ring.agent.builtin_servlets.messaging.MessagingServlet
 import coredevices.ring.agent.builtin_servlets.notes.CreateNoteTool
 import coredevices.ring.agent.builtin_servlets.notes.NoteServlet
 import coredevices.ring.agent.builtin_servlets.reminders.ReminderServlet
 import coredevices.indexai.data.McpServerDefinition
+import coredevices.ring.BuildKonfig
 import coredevices.util.Platform
 import coredevices.util.isAndroid
 import org.koin.core.component.KoinComponent
@@ -54,6 +56,14 @@ class BuiltinServletRepository: KoinComponent, ServletRepository {
                         )
                     )
                 )
+                if (BuildKonfig.GOOGLE_HOME_ENABLED) {
+                    add(
+                        McpServerDefinition(
+                            name = GoogleHomeServlet.NAME,
+                            title = "Google Home"
+                        )
+                    )
+                }
             }
         }
     }
@@ -70,6 +80,12 @@ class BuiltinServletRepository: KoinComponent, ServletRepository {
             MessagingServlet.name -> {
                 require(platform.isAndroid) { "Messaging servlet is only available on Android" }
                 MessagingServlet
+            }
+            GoogleHomeServlet.NAME -> {
+                require(platform.isAndroid && BuildKonfig.GOOGLE_HOME_ENABLED) {
+                    "Google Home servlet is unavailable in this build"
+                }
+                GoogleHomeServlet
             }
             else -> null
         }
