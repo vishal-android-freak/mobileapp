@@ -40,8 +40,10 @@ import coredevices.ring.api.NotionApi
 import coredevices.ring.audio.M4aEncoder
 import coredevices.ring.database.Preferences
 import coredevices.ring.database.room.MIGRATION_33_34
+import coredevices.ring.database.room.MIGRATION_34_35
 import coredevices.ring.database.PreferencesImpl
 import coredevices.ring.database.room.RingDatabase
+import coredevices.ring.database.room.repository.ClickActionRepository
 import coredevices.ring.database.room.repository.McpSandboxRepository
 import coredevices.ring.database.room.repository.RecordingProcessingTaskRepository
 import coredevices.ring.database.room.repository.ItemRepository
@@ -60,6 +62,8 @@ import coredevices.ring.agent.integrations.obsidian.ObsidianPreferences
 import coredevices.ring.firestoreModule
 import coredevices.ring.mcpModule
 import coredevices.ring.service.FirestoreRingDebugDelegate
+import coredevices.ring.service.ClickActionExecutor
+import coredevices.ring.service.ClickActionToolCatalog
 import coredevices.ring.service.IndexButtonActionHandler
 import coredevices.ring.service.IndexButtonSequenceRecorder
 import coredevices.ring.service.IndexNotificationManager
@@ -109,7 +113,7 @@ val experimentalModule = module {
     single {
         val builder: RoomDatabase.Builder<RingDatabase> = get()
         builder
-            .addMigrations(MIGRATION_33_34)
+            .addMigrations(MIGRATION_33_34, MIGRATION_34_35)
             .fallbackToDestructiveMigrationOnDowngrade(true)
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
@@ -162,6 +166,9 @@ val experimentalModule = module {
     }
     single {
         get<RingDatabase>().cachedListDao()
+    }
+    single {
+        get<RingDatabase>().clickActionBindingDao()
     }
     singleOf(::RecordingRepository)
     single {
@@ -239,6 +246,9 @@ val experimentalModule = module {
     factory { p -> IndexAgentCactus(get<CactusModelProvider>(), p.get<String>(), p.getOrNull() ?: emptyList(), getOrNull<InferenceBoostProvider>() ?: NoOpInferenceBoostProvider()) }
     singleOf(::AgentFactory)
     singleOf(::RecordingProcessor)
+    singleOf(::ClickActionRepository)
+    singleOf(::ClickActionExecutor)
+    singleOf(::ClickActionToolCatalog)
     singleOf(::IndexButtonActionHandler)
     singleOf(::IndexButtonSequenceRecorder)
     singleOf(::FirestoreRingDebugDelegate) bind KMPHaversineDebugDelegate::class

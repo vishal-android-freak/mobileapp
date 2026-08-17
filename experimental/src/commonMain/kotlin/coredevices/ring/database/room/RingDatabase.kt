@@ -35,6 +35,8 @@ import coredevices.indexai.database.dao.RecordingFeedItem
 import coredevices.indexai.util.JsonSnake
 import coredevices.mcp.data.SemanticResult
 import coredevices.ring.data.entity.room.CachedRecordingMetadata
+import coredevices.ring.data.entity.room.ClickAction
+import coredevices.ring.data.entity.room.ClickActionBinding
 import coredevices.ring.data.entity.room.RecordingProcessingTaskEntity
 import coredevices.ring.data.entity.room.RingDebugTransfer
 import coredevices.ring.data.entity.room.indexfeed.CachedItem
@@ -46,6 +48,7 @@ import coredevices.ring.data.entity.room.reminders.LocalReminderData
 import coredevices.ring.database.room.dao.CachedItemDao
 import coredevices.ring.database.room.dao.CachedListDao
 import coredevices.ring.database.room.dao.CachedRecordingMetadataDao
+import coredevices.ring.database.room.dao.ClickActionBindingDao
 import coredevices.ring.database.room.dao.LocalReminderDao
 import coredevices.ring.database.room.dao.RecordingProcessingTaskDao
 import coredevices.ring.database.room.dao.RingDebugTransferDao
@@ -80,12 +83,13 @@ import kotlin.uuid.Uuid
         TraceEntryEntity::class,
         CachedItem::class,
         CachedList::class,
+        ClickActionBinding::class,
     ],
     views = [
         RecordingFeedItem::class,
         RingTransferFeedItem::class
     ],
-    version = 34,
+    version = 35,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -143,6 +147,7 @@ abstract class RingDatabase: RoomDatabase() {
     abstract fun traceEntryDao(): TraceEntryDao
     abstract fun cachedItemDao(): CachedItemDao
     abstract fun cachedListDao(): CachedListDao
+    abstract fun clickActionBindingDao(): ClickActionBindingDao
 }
 
 @DeleteColumn("LocalReminderData", "platformId")
@@ -294,6 +299,30 @@ val MIGRATION_33_34 = object : Migration(33, 34) {
     }
 }
 
+/**
+ * Adds custom click-action bindings after the interim Google Home build shipped schema 34.
+ * The table check also accepts databases created by the older custom-actions branch, where the
+ * table already existed at version 33 before MIGRATION_33_34 repaired the missing errorType field.
+ */
+val MIGRATION_34_35 = object : Migration(34, 35) {
+    override fun migrate(connection: SQLiteConnection) {
+        val hasClickActionBinding = connection.prepare(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ClickActionBinding'"
+        ).use { statement -> statement.step() }
+        if (hasClickActionBinding) return
+
+        connection.execSQL(
+            "CREATE TABLE IF NOT EXISTS `ClickActionBinding` " +
+                "(`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`clickCount` INTEGER NOT NULL, `action` TEXT NOT NULL, `enabled` INTEGER NOT NULL)"
+        )
+        connection.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_ClickActionBinding_clickCount` " +
+                "ON `ClickActionBinding` (`clickCount`)"
+        )
+    }
+}
+
 @Suppress("NO_ACTUAL_FOR_EXPECT")
 expect object RingDatabaseConstructor : RoomDatabaseConstructor<RingDatabase> {
     override fun initialize(): RingDatabase
@@ -384,6 +413,20 @@ class Converters {
     @TypeConverter
     fun StringToStringList(string: String?) = string?.let {
         JsonSnake.decodeFromString<List<String>>(it)
+    }
+
+    @TypeConverter
+    fun ClickActionToString(action: ClickAction?): String? =
+        action?.let { JsonSnake.encodeToString<ClickAction>(it) }
+
+    @TypeConverter
+    fun StringToClickAction(string: String?): ClickAction? = string?.let {
+        try {
+            JsonSnake.decodeFromString<ClickAction>(it)
+        } catch (e: SerializationException) {
+            Logger.w(e) { "Failed to deserialize ClickAction, marking unsupported: $string" }
+            ClickAction.Unsupported
+        }
     }
 
     @TypeConverter
