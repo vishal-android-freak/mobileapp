@@ -58,15 +58,28 @@ class IndexAgentNeedle(
     private data class ToolTarget(
         val integrationName: String,
         val toolName: String,
+        val fixedAction: String? = null,
+        val fanSpeedCompatibility: Boolean = false,
     )
+
+    private fun isFanSpeedControl(input: String): Boolean {
+        val words = input.lowercase()
+        return listOf("fan", "fans").any(words::contains) &&
+            listOf("speed", "faster", "slower", "percent", "%").any(words::contains)
+    }
 
     private fun selectTools(input: String, tools: List<McpSessionTool>): List<McpSessionTool> {
         val words = input.lowercase()
-        val isLightControl = listOf("light", "lights", "lamp", "lamps", "bulb", "bulbs")
+        val isHomeControl = listOf(
+            "light", "lights", "lamp", "lamps", "bulb", "bulbs", "fan", "fans",
+        )
             .any(words::contains) &&
-            listOf("turn on", "turn off", "switch on", "switch off", "toggle", "brightness", "dim", "brighten")
+            listOf(
+                "turn on", "turn off", "switch on", "switch off", "toggle", "brightness",
+                "dim", "brighten", "speed", "faster", "slower", "percent", "%",
+            )
                 .any(words::contains)
-        if (!isLightControl) return tools
+        if (!isHomeControl) return tools
 
         val googleHomeTools = tools.filter { (_, tool) ->
             tool.definition.name.substringAfter("__") ==
@@ -79,39 +92,71 @@ class IndexAgentNeedle(
      * Needle takes short names; the composite `integration__tool` form is mapped back
      * afterwards, exactly as the Cactus path does.
      */
-    private fun prepareTools(tools: List<McpSessionTool>): Pair<String, Map<String, ToolTarget>> {
+    private fun prepareTools(
+        input: String,
+        tools: List<McpSessionTool>,
+    ): Pair<String, Map<String, ToolTarget>> {
         val targets = mutableMapOf<String, ToolTarget>()
         val array = buildJsonArray {
             tools.forEach { (integrationName, tool) ->
                 val definition = tool.definition
                 val shortName = definition.name.substringAfter("__")
-                val modelNames = if (
+                val isGoogleHomeTool =
                     shortName == ControlGoogleHomeDeviceToolConstants.TOOL_NAME
-                ) {
-                    ControlGoogleHomeDeviceToolConstants.NEEDLE_TOOL_ALIASES
-                } else {
-                    listOf(shortName)
+                val modelNames = when {
+                    isGoogleHomeTool && isFanSpeedControl(input) ->
+                        listOf(ControlGoogleHomeDeviceToolConstants.NEEDLE_FAN_ALIAS)
+                    isGoogleHomeTool ->
+                        listOf(ControlGoogleHomeDeviceToolConstants.NEEDLE_LIGHT_ALIAS)
+                    else -> listOf(shortName)
                 }
                 modelNames.forEach { modelName ->
-                    targets[modelName] = ToolTarget(integrationName, shortName)
+                    val fanSpeedCompatibility = isGoogleHomeTool &&
+                        modelName == ControlGoogleHomeDeviceToolConstants.NEEDLE_FAN_ALIAS
+                    targets[modelName] = ToolTarget(
+                        integrationName = integrationName,
+                        toolName = shortName,
+                        fixedAction = if (
+                            shortName == ControlGoogleHomeDeviceToolConstants.TOOL_NAME
+                        ) {
+                            ControlGoogleHomeDeviceToolConstants.needleFixedAction(modelName)
+                        } else {
+                            null
+                        },
+                        fanSpeedCompatibility = fanSpeedCompatibility,
+                    )
+                    val modelSchema = if (
+                        shortName == ControlGoogleHomeDeviceToolConstants.TOOL_NAME
+                    ) {
+                        ControlGoogleHomeDeviceToolConstants.needleInputSchema(modelName)
+                    } else {
+                        definition.inputSchema
+                    }
+                    val modelDescription = if (
+                        shortName == ControlGoogleHomeDeviceToolConstants.TOOL_NAME
+                    ) {
+                        ControlGoogleHomeDeviceToolConstants.needleDescription(modelName)
+                    } else {
+                        definition.description ?: shortName
+                    }
                     add(
                         buildJsonObject {
                         // Flat shape: Needle wants {name, description, parameters}, not
                         // OpenAI's {type, function:{...}} wrapper.
                         put("name", modelName)
-                        put("description", definition.description ?: shortName)
+                        put("description", modelDescription)
                         put(
                             "parameters",
                             buildJsonObject {
                                 put("type", "object")
                                 put(
                                     "properties",
-                                    definition.inputSchema.properties ?: JsonObject(emptyMap())
+                                    modelSchema.properties ?: JsonObject(emptyMap())
                                 )
                                 put(
                                     "required",
                                     buildJsonArray {
-                                        definition.inputSchema.required?.forEach { add(JsonPrimitive(it)) }
+                                        modelSchema.required?.forEach { add(JsonPrimitive(it)) }
                                     }
                                 )
                             }
@@ -148,7 +193,7 @@ class IndexAgentNeedle(
         includePromptsFromMcps: Map<String, Set<String>>,
     ): ConversationMessageDocument {
         val selectedTools = selectTools(input, tools)
-        val (toolsJson, targets) = prepareTools(selectedTools)
+        val (toolsJson, targets) = prepareTools(input, selectedTools)
 
         val raw = runtime.complete(systemFacts(), toolsJson, input)
 
@@ -186,7 +231,31 @@ class IndexAgentNeedle(
                         name = "${target.integrationName}.${target.toolName}",
                         // Needle returns `arguments` as an object; the wire format the
                         // rest of the app stores is a JSON string.
-                        arguments = (call["arguments"] ?: JsonObject(emptyMap())).toString(),
+                        arguments = buildJsonObject {
+                            call["arguments"]?.jsonObject?.forEach { (name, value) ->
+                                val targetName = if (
+                                    target.fanSpeedCompatibility && name == "percent"
+                                ) {
+                                    "fan_speed_percent"
+                                } else {
+                                    name
+                                }
+                                if (target.fanSpeedCompatibility && name == "device_name") {
+                                    val modelDeviceName = value.jsonPrimitive.content.trim()
+                                    val deviceName = if (
+                                        modelDeviceName.endsWith("fan", ignoreCase = true)
+                                    ) {
+                                        modelDeviceName
+                                    } else {
+                                        "$modelDeviceName fan"
+                                    }
+                                    put(targetName, deviceName)
+                                } else {
+                                    put(targetName, value)
+                                }
+                            }
+                            target.fixedAction?.let { put("action", it) }
+                        }.toString(),
                     ),
                 )
             },

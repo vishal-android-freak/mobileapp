@@ -24,10 +24,17 @@ import kotlin.test.assertTrue
  */
 class NeedleOnDeviceTest {
 
-    private val googleHomeToolsJson = """
+    private val googleHomeLightToolJson = """
         [
-         {"name":"control_google_home_device","description":"Control a named device already connected to the user's Google Home. Supports turning lights, switches, plugs, fans, displays, and TVs on or off, toggling them, and setting light brightness.",
+         {"name":"control_light","description":"Turn a Google Home light on or off, toggle it, or set its brightness.",
           "parameters":{"type":"object","properties":{"device_name":{"type":"string","description":"Device name exactly as the user said it, for example 'desk lamp'."},"room_name":{"type":"string","description":"Room name when the user included one, used to disambiguate devices."},"action":{"type":"string","enum":["on","off","toggle","set_brightness"]},"brightness_percent":{"type":"integer","minimum":0,"maximum":100,"description":"Required only for set_brightness."}},"required":["device_name","action"]}}
+        ]
+    """.trimIndent()
+
+    private val googleHomeFanToolJson = """
+        [
+         {"name":"set_volume","description":"Set a named Google Home fan's speed percentage.",
+          "parameters":{"type":"object","properties":{"device_name":{"type":"string","description":"Fan name exactly as the user said it."},"percent":{"type":"integer","minimum":0,"maximum":100,"description":"Fan speed percentage."}},"required":["device_name","percent"]}}
         ]
     """.trimIndent()
 
@@ -78,17 +85,40 @@ class NeedleOnDeviceTest {
 
     @Test
     fun googleHomeCommandProducesControlCall() {
-        val tool = googleHomeToolsJson.removePrefix("[").removeSuffix("]").trim()
         val requests = listOf(
-            Triple("can you switch on the window lights?", "control_light", listOf("window lights", "\"on\"")),
+            Triple(
+                "can you switch on the window lights?",
+                googleHomeLightToolJson,
+                listOf("control_light", "window lights", "\"on\""),
+            ),
             Triple(
                 "set the desk lamp brightness to 40 percent",
-                "control_light",
-                listOf("desk lamp", "set_brightness", "40"),
+                googleHomeLightToolJson,
+                listOf("control_light", "desk lamp", "set_brightness", "40"),
             ),
         )
-        requests.forEach { (request, alias, expectedArguments) ->
-            val schema = "[${tool.replace("control_google_home_device", alias)}]"
+        assertGoogleHomeRequests(requests)
+    }
+
+    @Test
+    fun googleHomeFanSpeedProducesControlCall() {
+        assertGoogleHomeRequests(
+            listOf(
+                Triple(
+                    "set the bedroom fan speed to 60 percent",
+                    googleHomeFanToolJson,
+                    // Needle's known percentage-control shape drops the device type;
+                    // IndexAgentNeedle restores "fan" before dispatching the real tool.
+                    listOf("set_volume", "bedroom", "60"),
+                ),
+            )
+        )
+    }
+
+    private fun assertGoogleHomeRequests(
+        requests: List<Triple<String, String, List<String>>>,
+    ) {
+        requests.forEach { (request, schema, expectedValues) ->
             assertTrue(
                 needleInit(
                     "date: 2026-08-17 Mon 18:30; device: phone",
@@ -98,11 +128,7 @@ class NeedleOnDeviceTest {
             )
             needleReset()
             val raw = needleComplete(request) ?: "null"
-            assertTrue(
-                raw.contains("\"$alias\""),
-                "Google Home alias '$alias' did not route '$request': $raw",
-            )
-            expectedArguments.forEach { expected ->
+            expectedValues.forEach { expected ->
                 assertTrue(
                     raw.contains(expected, ignoreCase = true),
                     "Expected '$expected' for '$request': $raw",

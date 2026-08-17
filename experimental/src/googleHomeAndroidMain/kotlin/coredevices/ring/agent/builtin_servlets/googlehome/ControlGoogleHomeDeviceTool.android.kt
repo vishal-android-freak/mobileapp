@@ -29,6 +29,8 @@ actual class ControlGoogleHomeDeviceTool : BuiltInMcpTool(
                 roomName = args.roomName,
                 action = args.action,
                 brightnessPercent = args.brightnessPercent,
+                fanSpeedPercent = args.fanSpeedPercent,
+                fanSpeedName = args.fanSpeedName,
             )) {
                 is GoogleHomeControlOutcome.Success -> ToolCallResult(
                     resultString = JsonSnake.encodeToString(
