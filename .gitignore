@@ -16,3 +16,5 @@
 iosApp/iosApp.xcodeproj/xcuserdata
 iosApp/iosApp.xcworkspace/xcuserdata
 iosApp/iosApp/GoogleService-Info.plist
+# NDK/CMake build trees (cactus-native, needle-native)
+.cxx/

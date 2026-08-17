@@ -18,7 +18,7 @@ class McpSandboxAgentNenya(
 
     override val logger: Logger = Logger.withTag("McpSandboxAgentNenya")
     companion object {
-        private const val AGENT_CONTEXT = """
+        internal const val AGENT_CONTEXT = """
 You are a helpful assistant fulfilling user requests with the tools available to you.
 ## Response and action guidelines:
  - Keep responses concise; they may be shown on a small display.

@@ -16,7 +16,7 @@ class IndexAgentNenya(
 
     override val logger: Logger = Logger.withTag("IndexAgentNenya")
     companion object {
-        private const val AGENT_CONTEXT = """
+        internal const val AGENT_CONTEXT = """
 You are primarily tasked with helping users create and manage notes, lists, and reminders. You can
 help with a multitude of tasks in addition to this too.
 ## Interpretation guidelines:

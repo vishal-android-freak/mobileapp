@@ -19,37 +19,54 @@ class AgentFactory: KoinComponent {
 
     private val signedIn get() = Firebase.auth.currentUser?.emailOrNull != null
 
-    private fun local(conversation: List<ConversationMessageDocument>): Agent =
-        get<IndexAgentCactus> { parametersOf(conversation) }
+    /**
+     * On-device agent. Needle 2 rather than Cactus/needle-pebble-ft: measured on a
+     * Pixel 10 against the live 11-tool catalogue it selected correctly 11/11 in
+     * 0.6-2.1s at ~25MB RAM, including MCP tools it was never fine-tuned on, where the
+     * Cactus path could not reach them at all.
+     *
+     * `context` is unused here: Needle's system turn carries environment facts, and its
+     * documentation states instructions placed there do not steer the model, so the
+     * agent supplies its own facts instead of a prompt.
+     */
+    private fun local(conversation: List<ConversationMessageDocument>, context: String): Agent =
+        get<IndexAgentNeedle> { parametersOf(conversation) }
 
     private fun remote(conversation: List<ConversationMessageDocument>): Agent =
         get<IndexAgentNenya> { parametersOf(conversation) }
+
+    /**
+     * @param localContext system prompt for the on-device agent. The online agents bake
+     * their own prompt in, so this only selects the local one.
+     */
+    private fun normalMode(
+        existingConversation: List<ConversationMessageDocument>,
+        localContext: String,
+    ): Agent = when (prefs.llmMode.value) {
+        LlmMode.LocalOnly -> local(existingConversation, localContext)
+        LlmMode.RemoteOnly -> {
+            if (!signedIn) {
+                throw AgentAuthenticationException("User must be authenticated to use online LLM agent")
+            }
+            remote(existingConversation)
+        }
+        LlmMode.RemoteFirst -> if (!signedIn) {
+            local(existingConversation, localContext)
+        } else {
+            FallbackAgent(
+                primary = remote(existingConversation),
+                fallback = local(existingConversation, localContext),
+                initialConversation = existingConversation,
+            )
+        }
+    }
 
     fun createForChatMode(
         mode: ChatMode,
         existingConversation: List<ConversationMessageDocument> = emptyList()
     ): Agent {
         return when (mode) {
-            ChatMode.Normal -> {
-                when (prefs.llmMode.value) {
-                    LlmMode.LocalOnly -> local(existingConversation)
-                    LlmMode.RemoteOnly -> {
-                        if (!signedIn) {
-                            throw AgentAuthenticationException("User must be authenticated to use online LLM agent")
-                        }
-                        remote(existingConversation)
-                    }
-                    LlmMode.RemoteFirst -> if (!signedIn) {
-                        local(existingConversation)
-                    } else {
-                        FallbackAgent(
-                            primary = remote(existingConversation),
-                            fallback = local(existingConversation),
-                            initialConversation = existingConversation,
-                        )
-                    }
-                }
-            }
+            ChatMode.Normal -> normalMode(existingConversation, IndexAgentNenya.AGENT_CONTEXT)
             // Always online, because, well, search
             ChatMode.Search -> {
                 if (Firebase.auth.currentUser?.emailOrNull == null) {
@@ -59,9 +76,12 @@ class AgentFactory: KoinComponent {
             }
             is ChatMode.McpSandbox -> {
                 when (mode.group.modelType) {
-                    // IndexAgent groups use the standard Index agent path
+                    // IndexAgent groups use the standard Index agent path, but with the
+                    // generic tool-using prompt: the Index prompt biases towards taking
+                    // a note when a request is ambiguous, which suppresses the sandbox's
+                    // own tools.
                     SandboxModelType.IndexAgent ->
-                        createForChatMode(ChatMode.Normal, existingConversation)
+                        normalMode(existingConversation, McpSandboxAgentNenya.AGENT_CONTEXT)
                     SandboxModelType.Default, SandboxModelType.HighCapability -> {
                         if (Firebase.auth.currentUser?.emailOrNull == null) {
                             throw AgentAuthenticationException("User must be authenticated to use MCP sandbox mode")
